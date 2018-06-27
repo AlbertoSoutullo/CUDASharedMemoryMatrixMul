@@ -10,7 +10,9 @@ one will be an identity matrix, with a given size aswell.
 
 
 <b>Kernel:</b><br>
-This kernel was used to study diferent computation times with diferent matrix sizes.
+This kernel was used to study diferent computation times with diferent matrix sizes.<br>
+The multiplication is done like the following image:
+<img src="https://s3.amazonaws.com/i.seelio.com/6f/fd/6ffd44cf043d8c0e80e4652da28bffb6ae1e.png">
 
 Multiplying 2 matrix with size of 10000x10000, we obtained the following results:
 
