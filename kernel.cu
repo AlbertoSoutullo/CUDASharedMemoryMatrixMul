@@ -1,4 +1,3 @@
-// MP 2: Due Sunday, Dec 16, 2012 at 11:59 p.m. PST
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #include <time.h>
@@ -15,7 +14,7 @@ __host__  void getError()
 	fflush(stdout);
 }
 
-////////////////////////////METODOS-MATRICES/////////////////////////////////////////////////////////
+////////////////////////////Matrix Utilities/////////////////////////////////////////////////////////
 
 __host__ int readMatrix(char* fileName, float** m1, int transpose)
 {
@@ -154,48 +153,14 @@ __host__ void multiplySimple(float* m1, float* m2, float* mres, int numFilas1, i
 
 }
 
-
-// Compute C = A * B
-__global__ void matrixMultiply(float * A, float * B, float * C,
-	int numARows, int numAColumns,
-	int numBRows, int numBColumns,
-	int numCRows, int numCColumns) {
-	
-	__shared__ float ds_M[TILE_WIDTH][TILE_WIDTH];
-	__shared__ float ds_N[TILE_WIDTH][TILE_WIDTH];
-
-	int bx = blockIdx.x, by = blockIdx.y,
-		tx = threadIdx.x, ty = threadIdx.y,
-		Row = by * TILE_WIDTH + ty,
-		Col = bx * TILE_WIDTH + tx;
-	float Pvalue = 0;
-
-	for (int m = 0; m < (numAColumns - 1) / TILE_WIDTH + 1; ++m) {
-		if (Row < numARows && m*TILE_WIDTH + tx < numAColumns)
-			ds_M[ty][tx] = A[Row*numAColumns + m * TILE_WIDTH + tx];
-		else
-			ds_M[ty][tx] = 0;
-		if (Col < numBColumns && m*TILE_WIDTH + ty < numBRows)
-			ds_N[ty][tx] = B[(m*TILE_WIDTH + ty)*numBColumns + Col];
-		else
-			ds_N[ty][tx] = 0;
-
-		__syncthreads();
-		for (int k = 0; k < TILE_WIDTH; ++k)
-			Pvalue += ds_M[ty][k] * ds_N[k][tx];
-		__syncthreads();
-	}
-	if (Row < numCRows && Col < numCColumns)
-		C[Row*numCColumns + Col] = Pvalue;
-}
+/////////////////////////////// Multiply method /////////////////////////
 
 __global__ void MatMul(float* A, float* B, float* C, int ARows, int ACols, int BRows,
 	int BCols, int CRows, int CCols)
 {
 	float CValue = 0;
-
-	int Row = blockIdx.y*TILE_WIDTH + threadIdx.y;
-	int Col = blockIdx.x*TILE_WIDTH + threadIdx.x;
+	int Row =blockIdx.y*TILE_WIDTH + threadIdx.y ;
+	int Col =blockIdx.x*TILE_WIDTH + threadIdx.x ;
 
 	__shared__ float As[TILE_WIDTH][TILE_WIDTH];
 	__shared__ float Bs[TILE_WIDTH][TILE_WIDTH];
@@ -207,8 +172,9 @@ __global__ void MatMul(float* A, float* B, float* C, int ARows, int ACols, int B
 		else
 			As[threadIdx.y][threadIdx.x] = 0.0;
 
-		if (k*TILE_WIDTH + threadIdx.y < BRows && Col < BCols)
+		if (k*TILE_WIDTH + threadIdx.y < BRows && Col < BCols) {
 			Bs[threadIdx.y][threadIdx.x] = B[(k*TILE_WIDTH + threadIdx.y)*BCols + Col];
+		}
 		else
 			Bs[threadIdx.y][threadIdx.x] = 0.0;
 
@@ -219,7 +185,6 @@ __global__ void MatMul(float* A, float* B, float* C, int ARows, int ACols, int B
 
 		__syncthreads();
 	}
-
 	if (Row < CRows && Col < CCols)
 		C[((blockIdx.y * blockDim.y + threadIdx.y)*CCols) +
 		(blockIdx.x * blockDim.x) + threadIdx.x] = CValue;
@@ -235,14 +200,13 @@ int main(int argc, char ** argv) {
 	float* d_mat2 = NULL;
 	float* d_matres = NULL;
 
-
 	//File names
-	/*char str1[20];
+	char str1[20];
 	char str2[20];
-	printf("Introduce the fila name of the first matrix:");
+	printf("Introduce the file name of the first matrix:");
 	scanf("%s", str1);
-	printf("Introduce the fila name of the second matrix:");
-	scanf("%s", str2);*/
+	printf("Introduce the file name of the second matrix:");
+	scanf("%s", str2);
 	clock_t cpu_startTimeTotal, cpu_endTimeTotal, cpu_startTimeMult, cpu_endTimeMult;
 	double cpu_ElapseTimeTotal = 0;
 	double cpu_ElapseTimeMult = 0;
@@ -251,45 +215,36 @@ int main(int argc, char ** argv) {
 
 	int numARows; // number of rows in the matrix A
 	int numAColumns; // number of columns in the matrix A
-	numAColumns = numARows = readMatrix("500x500.bin", &h_mat1, 0);
+	numAColumns = numARows = readMatrix(str1, &h_mat1, 0);
 
 	int numBRows; // number of rows in the matrix B
 	int numBColumns; // number of columns in the matrix B
-	numBColumns = numBRows = readMatrix("500x500I.bin", &h_mat2, 1);
+	numBColumns = numBRows = readMatrix(str2, &h_mat2, 1);
 
 
-	//inicializar resultado 
+	//Initialize result
 	h_matres = (float*)malloc(sizeof(float)*numAColumns*numBRows);
 
-
-	//Reservamos memoria en GPU
+	int dimensionGrid = (numBRows - 1) / TILE_WIDTH + 1;
+	dim3 dimBlock(TILE_WIDTH, TILE_WIDTH, 1);
+	dim3 dimGrid(dimensionGrid, dimensionGrid, 1);
+	
+	//Malloc on GPU
 	cudaMalloc(&d_mat1, sizeof(float) * numARows * numAColumns);
 	cudaMalloc(&d_mat2, sizeof(float) * numBRows * numBColumns);
 	cudaMalloc(&d_matres, sizeof(float) * numAColumns * numBRows);
 
-
-
-	//pasamos las matrices a memoria de GPU
+	//Send matrix to GPU
 	cudaMemcpy(d_mat1, h_mat1, sizeof(float) * numARows * numAColumns, cudaMemcpyHostToDevice);
 	getError();
 	cudaMemcpy(d_mat2, h_mat2, sizeof(float) * numBRows * numBColumns, cudaMemcpyHostToDevice);
 	getError();
 
-
-
-	//Definimos el tamaño de bloque 
-	int tam = numARows * numAColumns;
-	int numthreadporbloque = 1024;
-
-	int numbloques = ((numARows / 32) * (numBRows / 32)) + 1;
-	int numbloquesMax = 500;
-	int totalDivision = numbloques / numbloquesMax + 1;
-
 	cpu_startTimeMult = clock();
 
 	
-	//Multiplicamos
-	MatMul << <numbloquesMax, numthreadporbloque >> >(d_mat1, d_mat2, d_matres,
+	//Multiplication
+	MatMul << <dimGrid, dimBlock >> >(d_mat1, d_mat2, d_matres,
 		numARows, numAColumns,
 		numBRows, numBColumns,
 		numAColumns, numBRows);
@@ -297,11 +252,10 @@ int main(int argc, char ** argv) {
 	cudaThreadSynchronize();
 	getError();
 
-
 	cpu_endTimeMult = clock();
 
 
-	//Pasamos la matriz resultado a cpu
+	//Get the result
 	cudaMemcpy(h_matres, d_matres, sizeof(float) * numAColumns * numBRows, cudaMemcpyDeviceToHost);
 	getError();
 
@@ -309,25 +263,23 @@ int main(int argc, char ** argv) {
 	cudaFree(d_mat2);
 	cudaFree(d_matres);
 
-	//escribimos la matriz resultado en un archivo
+	//We write the result
 	writeMatrix("result.bin", h_matres, numAColumns, numBRows, 0);
 
 	cpu_endTimeTotal = clock();
-	cpu_ElapseTimeMult = ((cpu_endTimeMult - cpu_startTimeMult) / CLOCKS_PER_SEC);
-	cpu_ElapseTimeTotal = ((cpu_endTimeTotal - cpu_startTimeTotal) / CLOCKS_PER_SEC);
+	cpu_ElapseTimeMult = (double)(cpu_endTimeMult - cpu_startTimeMult) / (double)(CLOCKS_PER_SEC);
+	cpu_ElapseTimeTotal = (double)(cpu_endTimeTotal - cpu_startTimeTotal) / (double)(CLOCKS_PER_SEC);
 
-	printf("Tiempo Total: %d", cpu_ElapseTimeTotal);
-	printf("Tiempo Multiplicando: %d", cpu_ElapseTimeMult);
+	printf("Total time: %f\n", cpu_ElapseTimeTotal);
+	printf("Multiplication time: %f\n", cpu_ElapseTimeMult);
 
-	//int result = martrixComparator(h_mat1, h_matres, numAColumns, numBRows);
+	int result = martrixComparator(h_mat1, h_matres, numAColumns, numBRows);
 
-	//if (result) printf("Matrix match.\n");
+	if (result) printf("Matrix match.\n");
 
 	free(h_mat1);
 	free(h_mat2);
 	free(h_matres);
-
-	
 
 	return 0;
 }
