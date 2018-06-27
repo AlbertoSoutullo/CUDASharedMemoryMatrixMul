@@ -11,7 +11,7 @@ Doing an 8 threads static division multiplication:<br>
   -1595'099 sec
 
 Using CUDA with shared memory:<br>
-  -18'914
+  -18'914 sec
   
 With CUDA we obtained a speedup of 84'334302 compared with static division.
 
